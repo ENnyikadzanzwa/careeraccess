@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: careeraccess
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '3000:3000'
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/careeraccess?schema=public
+      JWT_SECRET: change-this-to-a-secure-secret-in-production
+      JWT_EXPIRES_IN: 7d
+      PORT: 3000
+      NODE_ENV: production
+      WHATSAPP_ENABLED: 'true'
+      WHATSAPP_SESSION_PATH: /app/whatsapp-sessions
+      UPLOAD_DIR: /app/uploads
+      PLATFORM_URL: http://localhost:3001
+    volumes:
+      - whatsapp_sessions:/app/whatsapp-sessions
+      - uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - '3001:3001'
+    environment:
+      NEXT_PUBLIC_API_URL: http://api:3000
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  whatsapp_sessions:
+  uploads:

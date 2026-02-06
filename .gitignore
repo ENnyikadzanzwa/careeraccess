@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+*.log
+uploads/
+whatsapp-sessions/
+.next/
+web/node_modules/
+web/.next/
+web/out/
+*.tsbuildinfo

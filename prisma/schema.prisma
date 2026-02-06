@@ -1,0 +1,515 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── USER & AUTH ───────────────────────────────────────────
+
+enum UserRole {
+  LEARNER
+  PARENT
+  INSTITUTION_STAFF
+  SUPPORT_AGENT
+  APPLICATION_AGENT
+  DATA_VERIFIER
+  ADMIN
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String?   @unique
+  phone         String    @unique
+  passwordHash  String
+  role          UserRole  @default(LEARNER)
+  firstName     String
+  lastName      String
+  dateOfBirth   DateTime?
+  nationalId    String?
+  whatsappJid   String?   @unique
+  isVerified    Boolean   @default(false)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  learnerProfile  LearnerProfile?
+  parentProfile   ParentProfile?
+  staffProfile    InstitutionStaff?
+  documents       Document[]
+  applications    Application[]
+  payments        Payment[]
+  assessments     Assessment[]
+  notifications   Notification[]
+  auditLogs       AuditLog[]      @relation("AuditUser")
+  sentMessages    Message[]       @relation("MessageSender")
+  receivedMessages Message[]      @relation("MessageReceiver")
+  agentJobs       AgentJob[]      @relation("AgentUser")
+  assignedJobs    AgentJob[]      @relation("AgentWorker")
+  consents        Consent[]
+
+  @@index([phone])
+  @@index([whatsappJid])
+}
+
+model LearnerProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id])
+  educationLevel  EducationLevel
+  school          String?
+  province        String?
+  city            String?
+  guardianId      String?
+  budgetMin       Float?
+  budgetMax       Float?
+  studyMode       StudyMode?
+  interests       String[]
+  strengths       String[]
+  oLevelResults   Json?
+  aLevelResults   Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+enum EducationLevel {
+  O_LEVEL
+  A_LEVEL
+  CERTIFICATE
+  DIPLOMA
+  DEGREE
+  POSTGRADUATE
+}
+
+enum StudyMode {
+  FULL_TIME
+  PART_TIME
+  DISTANCE
+  BLOCK_RELEASE
+}
+
+model ParentProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+  learners  String[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─── INSTITUTIONS & PROGRAMMES ─────────────────────────────
+
+enum InstitutionType {
+  UNIVERSITY
+  POLYTECHNIC
+  TEACHERS_COLLEGE
+  VOCATIONAL
+  SECONDARY_SCHOOL
+  PRIVATE_COLLEGE
+}
+
+model Institution {
+  id            String          @id @default(cuid())
+  name          String
+  type          InstitutionType
+  province      String
+  city          String
+  address       String?
+  phone         String?
+  email         String?
+  website       String?
+  logo          String?
+  description   String?
+  isMember      Boolean         @default(false)
+  isVerified    Boolean         @default(false)
+  portalUrl     String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  programmes    Programme[]
+  staff         InstitutionStaff[]
+  applications  Application[]
+
+  @@index([type])
+  @@index([province])
+}
+
+model InstitutionStaff {
+  id            String      @id @default(cuid())
+  userId        String      @unique
+  user          User        @relation(fields: [userId], references: [id])
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id])
+  position      String?
+  canReview     Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+enum QualificationLevel {
+  CERTIFICATE
+  NATIONAL_CERTIFICATE
+  NATIONAL_DIPLOMA
+  HIGHER_NATIONAL_DIPLOMA
+  DIPLOMA
+  BACHELOR
+  HONOURS
+  POSTGRADUATE_DIPLOMA
+  MASTERS
+  DOCTORATE
+}
+
+model Programme {
+  id                  String             @id @default(cuid())
+  institutionId       String
+  institution         Institution        @relation(fields: [institutionId], references: [id])
+  name                String
+  code                String?
+  qualificationLevel  QualificationLevel
+  faculty             String?
+  department          String?
+  description         String?
+  durationMonths      Int
+  studyModes          StudyMode[]
+  tuitionFeeMin       Float?
+  tuitionFeeMax       Float?
+  currency            String             @default("USD")
+  entryRequirements   Json
+  oLevelMin           Int?
+  aLevelMin           Int?
+  requiredSubjects    String[]
+  requiredDocuments   String[]
+  applicationFee      Float?
+  intakes             Intake[]
+  isActive            Boolean            @default(true)
+
+  // Scoring
+  demandScore         Float?
+  remoteOpportunity   Float?
+  selfEmployment      Float?
+  capitalRequirement  Float?
+  timeToIncome        Float?
+  aiAutomationRisk    Float?
+  overallValueScore   Float?
+
+  sourceUrl           String?
+  lastVerifiedAt      DateTime?
+  verifiedBy          String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  applications        Application[]
+
+  @@index([institutionId])
+  @@index([qualificationLevel])
+  @@index([overallValueScore])
+}
+
+model Intake {
+  id            String    @id @default(cuid())
+  programmeId   String
+  programme     Programme @relation(fields: [programmeId], references: [id])
+  name          String
+  year          Int
+  opensAt       DateTime?
+  closesAt      DateTime?
+  startsAt      DateTime?
+  capacity      Int?
+  isOpen        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([programmeId])
+  @@index([closesAt])
+}
+
+// ─── APPLICATIONS ──────────────────────────────────────────
+
+enum ApplicationMode {
+  SELF
+  AGENT
+}
+
+enum ApplicationStatus {
+  DRAFT
+  DOCUMENTS_PENDING
+  SUBMITTED
+  UNDER_REVIEW
+  ACCEPTED
+  CONDITIONALLY_ACCEPTED
+  REJECTED
+  WITHDRAWN
+  WAITLISTED
+}
+
+model Application {
+  id              String            @id @default(cuid())
+  userId          String
+  user            User              @relation(fields: [userId], references: [id])
+  institutionId   String
+  institution     Institution       @relation(fields: [institutionId], references: [id])
+  programmeId     String
+  programme       Programme         @relation(fields: [programmeId], references: [id])
+  mode            ApplicationMode   @default(SELF)
+  status          ApplicationStatus @default(DRAFT)
+  submittedAt     DateTime?
+  decisionAt      DateTime?
+  decisionNotes   String?
+  portalRef       String?
+  documents       ApplicationDocument[]
+  agentJob        AgentJob?
+  payments        Payment[]
+  timeline        ApplicationTimeline[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([institutionId])
+}
+
+model ApplicationDocument {
+  id            String      @id @default(cuid())
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id])
+  documentId    String
+  document      Document    @relation(fields: [documentId], references: [id])
+  createdAt     DateTime    @default(now())
+}
+
+model ApplicationTimeline {
+  id            String            @id @default(cuid())
+  applicationId String
+  application   Application       @relation(fields: [applicationId], references: [id])
+  status        ApplicationStatus
+  note          String?
+  createdBy     String?
+  createdAt     DateTime          @default(now())
+}
+
+// ─── DOCUMENTS ─────────────────────────────────────────────
+
+enum DocumentType {
+  O_LEVEL_CERTIFICATE
+  A_LEVEL_CERTIFICATE
+  NATIONAL_ID
+  BIRTH_CERTIFICATE
+  PASSPORT_PHOTO
+  TRANSCRIPT
+  RECOMMENDATION_LETTER
+  PERSONAL_STATEMENT
+  PROOF_OF_PAYMENT
+  OTHER
+}
+
+model Document {
+  id            String       @id @default(cuid())
+  userId        String
+  user          User         @relation(fields: [userId], references: [id])
+  type          DocumentType
+  fileName      String
+  filePath      String
+  mimeType      String
+  fileSize      Int
+  isVerified    Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  applications  ApplicationDocument[]
+
+  @@index([userId])
+  @@index([type])
+}
+
+// ─── AGENT JOBS ────────────────────────────────────────────
+
+enum AgentJobStatus {
+  PENDING
+  ASSIGNED
+  IN_PROGRESS
+  AWAITING_OTP
+  SUBMITTED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model AgentJob {
+  id              String         @id @default(cuid())
+  applicationId   String         @unique
+  application     Application    @relation(fields: [applicationId], references: [id])
+  userId          String
+  user            User           @relation("AgentUser", fields: [userId], references: [id])
+  agentId         String?
+  agent           User?          @relation("AgentWorker", fields: [agentId], references: [id])
+  status          AgentJobStatus @default(PENDING)
+  fee             Float
+  consentGiven    Boolean        @default(false)
+  consentAt       DateTime?
+  slaDeadline     DateTime?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  evidenceUrls    String[]
+  notes           String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([status])
+  @@index([agentId])
+}
+
+// ─── ASSESSMENTS ───────────────────────────────────────────
+
+model Assessment {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  type        String
+  responses   Json
+  results     Json
+  verbal      Float?
+  numerical   Float?
+  logical     Float?
+  creative    Float?
+  practical   Float?
+  social      Float?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// ─── PAYMENTS ──────────────────────────────────────────────
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum PaymentType {
+  APPLICATION_FEE
+  AGENT_FEE
+  PREMIUM_GUIDANCE
+  SUBSCRIPTION
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id])
+  applicationId   String?
+  application     Application?  @relation(fields: [applicationId], references: [id])
+  type            PaymentType
+  amount          Float
+  currency        String        @default("USD")
+  status          PaymentStatus @default(PENDING)
+  reference       String        @unique
+  method          String?
+  providerRef     String?
+  paidAt          DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([reference])
+}
+
+// ─── MESSAGING & NOTIFICATIONS ─────────────────────────────
+
+model Message {
+  id          String   @id @default(cuid())
+  senderId    String
+  sender      User     @relation("MessageSender", fields: [senderId], references: [id])
+  receiverId  String
+  receiver    User     @relation("MessageReceiver", fields: [receiverId], references: [id])
+  content     String
+  isRead      Boolean  @default(false)
+  channel     String   @default("platform")
+  createdAt   DateTime @default(now())
+
+  @@index([senderId])
+  @@index([receiverId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  title     String
+  body      String
+  type      String
+  isRead    Boolean  @default(false)
+  data      Json?
+  channel   String   @default("platform")
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+// ─── CONSENT & AUDIT ───────────────────────────────────────
+
+model Consent {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String
+  granted   Boolean
+  ipAddress String?
+  details   String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation("AuditUser", fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  details   Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([entity])
+  @@index([createdAt])
+}
+
+// ─── WHATSAPP SESSION ──────────────────────────────────────
+
+model WhatsAppSession {
+  id        String   @id @default(cuid())
+  phone     String   @unique
+  state     Json
+  step      String   @default("START")
+  data      Json?
+  lastMsgAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([phone])
+}
+
+// ─── APPLICATION PLAYBOOKS ─────────────────────────────────
+
+model ApplicationPlaybook {
+  id              String   @id @default(cuid())
+  institutionName String
+  portalUrl       String?
+  steps           Json
+  requiredFields  Json?
+  paymentGuide    String?
+  notes           String?
+  lastVerifiedAt  DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
